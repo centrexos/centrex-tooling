@@ -1,0 +1,134 @@
+name: CentrexOS Build
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-core:
+    name: Build centrex-core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            core/target
+          key: ${{ runner.os }}-cargo-core-${{ hashFiles('core/Cargo.lock') }}
+
+      - name: fmt check
+        run: cargo fmt --manifest-path core/Cargo.toml -- --check
+
+      - name: clippy
+        run: cargo clippy --manifest-path core/Cargo.toml -- -D warnings
+
+      - name: build
+        run: cargo build --manifest-path core/Cargo.toml --release
+
+      - name: test
+        run: cargo test --manifest-path core/Cargo.toml
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: centrex-core
+          path: core/target/release/centrex-core
+
+  build-cxpkg:
+    name: Build cxpkg
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            cxpkg/target
+          key: ${{ runner.os }}-cargo-cxpkg-${{ hashFiles('cxpkg/Cargo.lock') }}
+
+      - name: fmt check
+        run: cargo fmt --manifest-path cxpkg/Cargo.toml -- --check
+
+      - name: clippy
+        run: cargo clippy --manifest-path cxpkg/Cargo.toml -- -D warnings
+
+      - name: build
+        run: cargo build --manifest-path cxpkg/Cargo.toml --release
+
+      - name: test
+        run: cargo test --manifest-path cxpkg/Cargo.toml
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: cxpkg
+          path: cxpkg/target/release/cxpkg
+
+  build-installer:
+    name: Build installer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system deps
+        run: sudo apt-get install -y libxcb1-dev
+
+      - name: build
+        run: cargo build --manifest-path installer/Cargo.toml --release
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: centrex-installer
+          path: installer/target/release/centrex-installer
+
+  validate-metadata:
+    name: Validate metadata JSON
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate all JSON files
+        run: |
+          find metadata -name "*.json" | while read f; do
+            jq . "$f" > /dev/null && echo "OK: $f" || (echo "FAIL: $f" && exit 1)
+          done
+
+  shellcheck:
+    name: Shell script lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run shellcheck
+        run: |
+          find . -name "*.sh" -not -path "*/.git/*" | xargs shellcheck
